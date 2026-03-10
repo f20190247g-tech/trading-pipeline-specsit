@@ -77,8 +77,13 @@ for i, s in enumerate(sector_rankings):
     sector_name = s["sector"]
     deriv = all_sector_derivs.get(sector_name, {})
     inflection = deriv.get("inflection", {})
-    sector_stage = s.get("sector_stage", "")
-    stage_label = f"S{sector_stage}" if sector_stage else "—"
+    sector_stage_data = s.get("sector_stage", {})
+    if isinstance(sector_stage_data, dict):
+        stage_num = sector_stage_data.get("stage", "")
+        stage_sub = sector_stage_data.get("substage", "")
+        stage_label = stage_sub if stage_sub else (f"S{stage_num}" if stage_num else "—")
+    else:
+        stage_label = f"S{sector_stage_data}" if sector_stage_data else "—"
     rows.append({
         "Rank": i + 1,
         "Sector": sector_name,
