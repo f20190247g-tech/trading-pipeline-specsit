@@ -117,6 +117,7 @@ CACHE_KEYS = [
     "macro_data", "quality_radar", "universe_count",
     "ai_summary", "ai_summary_source",
     "earnings_season",
+    "macro_liquidity", "fii_gate", "breadth_by_stage",
 ]
 
 
@@ -229,9 +230,19 @@ def run_pipeline_scan():
             st.write(f"  Loaded {len(all_stock_data)} stocks")
             progress.progress(30)
 
-            # Step 3: Market regime
+            # Step 3: Market regime + macro liquidity
             st.write("Computing market regime...")
-            regime = compute_regime(nifty_df, all_stock_data)
+            from market_regime import compute_macro_liquidity_score
+            macro_liquidity = None
+            fii_dii_data_scan = None
+            try:
+                _nse_scan = get_nse_fetcher()
+                fii_dii_data_scan = _nse_scan.compute_fii_dii_flows()
+            except Exception:
+                pass
+            macro_liquidity = compute_macro_liquidity_score(macro_data, fii_dii_data_scan)
+            st.session_state.macro_liquidity = macro_liquidity
+            regime = compute_regime(nifty_df, all_stock_data, macro_liquidity=macro_liquidity)
             st.session_state.regime = regime
             st.write(f"  Regime: {regime['label']} (score {regime['regime_score']:+d})")
             progress.progress(40)
@@ -282,9 +293,64 @@ def run_pipeline_scan():
             st.write(f"  {len(all_stage2)} Stage 2 stocks across all sectors")
             progress.progress(85)
 
+            # Step 6c: FII gating
+            fii_gate = None
+            try:
+                from fii_gating import check_fii_gate
+                fii_gate = check_fii_gate(fii_dii_data_scan)
+                st.session_state.fii_gate = fii_gate
+                if fii_gate and fii_gate.get("gated"):
+                    st.write(f"  FII Gate: {fii_gate['gate_level'].upper()}")
+            except Exception:
+                pass
+
+            # Step 6d: Breadth by stage
+            try:
+                from breadth_analysis import compute_breadth_by_stage
+                from stage_filter import classify_stage
+                stage_results = []
+                for t, sdf in all_stock_data.items():
+                    if len(sdf) >= 230:
+                        stage_results.append({"ticker": t, "stage": classify_stage(sdf)})
+                breadth = compute_breadth_by_stage(stage_results)
+                st.session_state.breadth_by_stage = breadth
+                st.write(f"  Breadth: {breadth['breadth_label']} (S2: {breadth['stage_pcts'].get(2, 0):.0f}%)")
+            except Exception:
+                pass
+
+            # Step 6e: Enrich candidates with earnings + value analysis
+            if stage2:
+                st.write("Enriching candidates (earnings + value)...")
+                try:
+                    from earnings_analysis import compute_earnings_acceleration
+                    for c in stage2:
+                        try:
+                            c["earnings_analysis"] = compute_earnings_acceleration(c["ticker"])
+                        except Exception:
+                            c["earnings_analysis"] = {"data_available": False}
+                except ImportError:
+                    pass
+                try:
+                    from value_analysis import compute_value_score
+                    for c in stage2:
+                        try:
+                            c["value_analysis"] = compute_value_score(c["ticker"])
+                        except Exception:
+                            c["value_analysis"] = {"data_available": False}
+                except ImportError:
+                    pass
+                progress.progress(88)
+
             # Step 7: Fundamental veto + watchlist
             st.write("Applying fundamental veto & sizing positions...")
             watchlist = generate_final_watchlist(stage2, regime, capital) if stage2 else []
+            # Apply R:R scan
+            if watchlist:
+                try:
+                    from rr_scanner import scan_asymmetric_setups
+                    watchlist = scan_asymmetric_setups(watchlist)
+                except ImportError:
+                    pass
             st.session_state.final_watchlist = watchlist
             progress.progress(92)
 
@@ -636,31 +702,37 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# FII/DII Today cards
-if fii_dii:
-    fii_net = fii_dii.get("fii_net", 0)
-    dii_net = fii_dii.get("dii_net", 0)
-    fii_buy = fii_dii.get("fii_buy", 0)
-    fii_sell = fii_dii.get("fii_sell", 0)
-    dii_buy = fii_dii.get("dii_buy", 0)
-    dii_sell = fii_dii.get("dii_sell", 0)
-    fii_c = "#26a69a" if fii_net >= 0 else "#ef5350"
-    dii_c = "#26a69a" if dii_net >= 0 else "#ef5350"
-    fii_label_txt = "BUYING" if fii_net >= 0 else "SELLING"
-    dii_label_txt = "BUYING" if dii_net >= 0 else "SELLING"
-    fii_date = fii_dii.get("date", "")
+# Breadth by stage distribution
+breadth = st.session_state.get("breadth_by_stage")
+if breadth:
+    s_pcts = breadth.get("stage_pcts", {})
+    b_score = breadth.get("breadth_score", 50)
+    b_label = breadth.get("breadth_label", "")
+    b_color = "#26a69a" if b_score >= 55 else "#ef5350" if b_score < 45 else "#FF9800"
+    st.markdown(
+        f'<div style="display:flex;gap:12px;align-items:center;margin:6px 0 10px 0;">'
+        f'<span style="font-size:0.75em;color:#666;">STAGE BREADTH:</span>'
+        f'<span style="font-size:0.75em;background:#2196F322;color:#2196F3;padding:2px 8px;border-radius:4px;">S1: {s_pcts.get(1, 0):.0f}%</span>'
+        f'<span style="font-size:0.75em;background:#26a69a22;color:#26a69a;padding:2px 8px;border-radius:4px;">S2: {s_pcts.get(2, 0):.0f}%</span>'
+        f'<span style="font-size:0.75em;background:#FF980022;color:#FF9800;padding:2px 8px;border-radius:4px;">S3: {s_pcts.get(3, 0):.0f}%</span>'
+        f'<span style="font-size:0.75em;background:#ef535022;color:#ef5350;padding:2px 8px;border-radius:4px;">S4: {s_pcts.get(4, 0):.0f}%</span>'
+        f'<span style="font-size:0.75em;font-weight:600;color:{b_color};">{b_label}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric("FII/FPI Today", f"{fii_net:+,.0f} Cr",
-                  delta=fii_label_txt, delta_color="normal" if fii_net >= 0 else "inverse")
-        st.caption(f"Buy: {fii_buy:,.0f} | Sell: {fii_sell:,.0f}")
-    with c2:
-        st.metric("DII Today", f"{dii_net:+,.0f} Cr",
-                  delta=dii_label_txt, delta_color="normal" if dii_net >= 0 else "inverse")
-        st.caption(f"Buy: {dii_buy:,.0f} | Sell: {dii_sell:,.0f}")
-    if fii_date:
-        st.caption(f"Data as of: {fii_date}")
+# FII gate status
+fii_gate_data = st.session_state.get("fii_gate")
+if fii_gate_data and fii_gate_data.get("gated"):
+    gate_color = "#ef5350" if fii_gate_data["gate_level"] == "severe" else "#FF9800"
+    st.markdown(
+        f'<div style="background:{gate_color}12;border-left:2px solid {gate_color};'
+        f'border-radius:0 4px 4px 0;padding:6px 12px;margin-bottom:8px;font-size:0.8em;">'
+        f'<span style="color:{gate_color};font-weight:600;">FII GATE: {fii_gate_data["gate_level"].upper()}</span>'
+        f' <span style="color:#888;">{fii_gate_data["reason"]}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 # Multi-timeframe cumulative flows table
 if fii_dii_flows:
@@ -839,30 +911,32 @@ else:
 # ══════════════════════════════════════════════════════════════════
 st.markdown("#### Top Conviction Ideas")
 
-with st.expander("How Conviction Scores Work", expanded=True):
+with st.expander("How Conviction Scores Work", expanded=False):
     st.markdown("""
-**Conviction Score** (0-100) ranks stocks by combining multiple factors:
+**Tri-Factor Conviction Score** (0-100) combines three pillars:
 
-| Factor | Max Points | How It's Scored |
-|--------|-----------|-----------------|
-| Sector Rank | 40 pts | #1 ranked sector = 40, #2 = 35, #3 = 30, #4 = 25. Being in a top sector is the single biggest factor. |
-| Stage 2 Score | 20 pts | Perfect S2 (7/7 criteria met) = 20 pts. Each missing criterion reduces the score. |
-| Base Count | 10 pts | 1st base = 10 pts, 2nd = 7, 3rd = 4. First-base breakouts have the highest success rate. |
-| RS Percentile | 15 pts | Top RS vs Nifty among all screened stocks = 15 pts, scaled by percentile rank. |
-| Accumulation | 15 pts | Highest accumulation ratio = 15 pts, scaled by percentile rank. |
+| Pillar | Weight | Components |
+|--------|--------|------------|
+| **Technical** | 50% | Sector rank, Stage 2 score, base count, RS percentile, accumulation, consolidation quality, weekly confirmation |
+| **Value** | 25% | ROIC history, FCF yield, fortress balance sheet, DCF margin of safety, competitive moat |
+| **Macro** | 25% | Macro liquidity regime, earnings acceleration, FII/DII flow gating |
 
-**Bonus points** (up to +10): VCP pattern (+5), tight risk <5% (+3), volume surge on breakout (+2).
+**Bonus** (up to +10): VCP pattern, bulk deals, volume surge, delivery %, asymmetric R:R.
 
-**Scores above 60** = high conviction (green border). **40-60** = moderate (orange). **Below 40** = lower conviction (red).
+**60+** = high conviction (green). **40-60** = moderate (orange). **<40** = lower (red). **T/V/M** = Technical/Value/Macro pillar scores.
 """)
 
 sector_rankings = st.session_state.get("sector_rankings", [])
 stage2_candidates = st.session_state.get("stage2_candidates", [])
 
 if watchlist and sector_rankings:
+    _macro_liq = st.session_state.get("macro_liquidity")
+    _fii_gate = st.session_state.get("fii_gate")
     ranked = rank_candidates_by_conviction(
         candidates=list(watchlist),
         sector_rankings=sector_rankings,
+        macro_liquidity=_macro_liq,
+        fii_gate=_fii_gate,
     )
     sector_ideas = get_top_ideas_by_sector(ranked, top_sectors, per_sector=3)
 
@@ -904,13 +978,27 @@ if watchlist and sector_rankings:
                             rationale.append(f"Accum {accum:.1f}x")
 
                         conv_color = "#26a69a" if conv_score >= 60 else "#FF9800" if conv_score >= 40 else "#ef5350"
+                        pillars = idea.get("conviction_pillars", {})
+                        tech_s = pillars.get("technical", 0)
+                        val_s = pillars.get("value", 0)
+                        macro_s = pillars.get("macro", 0)
+                        ea = idea.get("earnings_analysis", {})
+                        ea_trend = ea.get("trend", "")
+                        ea_color = {"accelerating": "#26a69a", "decelerating": "#ef5350"}.get(ea_trend, "#888")
+                        ea_badge = f'<span style="font-size:0.6em;background:{ea_color}22;color:{ea_color};padding:2px 5px;border-radius:3px;margin-left:4px;">{ea_trend}</span>' if ea_trend else ''
+                        rr = idea.get("rr_ratio", 0)
+                        rr_str = f'<span style="font-size:0.7em;color:#FFD700;margin-left:6px;">{rr:.1f}R</span>' if rr >= 3 else ''
 
                         st.markdown(
-                            f'<div style="background:#0f0f1a;border:1px solid {conv_color}44;'
-                            f'border-radius:8px;padding:14px;text-align:center;">'
-                            f'<div style="font-size:1.1em;font-weight:600;color:#e0e0e0;">{ticker_name}</div>'
+                            f'<div style="background:#0f0f1a;border:1px solid {conv_color}44;border-radius:8px;padding:14px;text-align:center;">'
+                            f'<div style="font-size:1.1em;font-weight:600;color:#e0e0e0;">{ticker_name}{rr_str}</div>'
                             f'<div style="font-size:1.5em;font-weight:700;color:{conv_color};margin:6px 0;font-family:monospace;">{conv_score:.0f}</div>'
-                            f'<div style="font-size:0.65em;color:#555;text-transform:uppercase;letter-spacing:0.1em;">CONVICTION</div>'
+                            f'<div style="font-size:0.65em;color:#555;text-transform:uppercase;letter-spacing:0.1em;">CONVICTION{ea_badge}</div>'
+                            f'<div style="display:flex;justify-content:center;gap:6px;margin-top:8px;">'
+                            f'<span style="font-size:0.62em;color:#2196F3;">T:{tech_s:.0f}</span>'
+                            f'<span style="font-size:0.62em;color:#8BC34A;">V:{val_s:.0f}</span>'
+                            f'<span style="font-size:0.62em;color:#FF9800;">M:{macro_s:.0f}</span>'
+                            f'</div>'
                             f'</div>',
                             unsafe_allow_html=True,
                         )

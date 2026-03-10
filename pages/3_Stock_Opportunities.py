@@ -278,15 +278,18 @@ with tab2:
             in_pipeline = s["ticker"] in pipeline_tickers
             in_top_sector = s.get("sector", "") in top_sectors
 
+            consol = s.get("consolidation", {}) or {}
+            weekly = s.get("weekly", {}) or {}
             s2_rows.append({
                 "Ticker": s["ticker"],
                 "Sector": s.get("sector", ""),
                 "S2 Score": f"{stage.get('s2_score', 0)}/7",
                 "Stage": stage.get("stage", "?"),
+                "Base #": s.get("base_count_in_stage2", 0),
+                "Grade": consol.get("quality_grade", "—"),
+                "Weekly": "✓" if weekly.get("weekly_confirmed") else "✗",
                 "Breakout": "YES" if breakout.get("breakout") else "",
                 "VCP": "YES" if vcp.get("is_vcp") else "",
-                "Bases": s.get("bases_found", 0),
-                "Base #": s.get("base_count_in_stage2", 0),
                 "Entry": round(entry_setup.get("entry_price", 0), 1) if entry_setup.get("entry_price") else "",
                 "Stop": round(entry_setup.get("effective_stop", 0), 1) if entry_setup.get("effective_stop") else "",
                 "Risk %": f"{entry_setup.get('risk_pct', 0):.1f}%" if entry_setup.get("risk_pct") else "",

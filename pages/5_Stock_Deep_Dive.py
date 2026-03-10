@@ -890,6 +890,33 @@ if entry_setup:
     en2.metric("Stop", f"{entry_setup.get('effective_stop', 0):.1f}")
     en3.metric("Risk", f"{entry_setup.get('risk_pct', 0):.1f}%")
 
+    # R:R Targets sell plan
+    try:
+        from rr_scanner import compute_multi_level_targets
+        rr_targets = compute_multi_level_targets(entry_setup["entry_price"], entry_setup["effective_stop"])
+        if rr_targets:
+            st.markdown("**Sell Plan (R-Multiple Targets):**")
+            rr_rows = [{"R": f"{t['r_multiple']}R", "Price": f"{t['price']:,.2f}", "Gain": f"+{t['gain_pct']}%", "Sell": f"{t['sell_pct']}%", "Action": t["action"]} for t in rr_targets]
+            st.dataframe(pd.DataFrame(rr_rows), use_container_width=True, hide_index=True)
+    except Exception:
+        pass
+
+# Weekly confirmation + consolidation + transitions
+_weekly = stage_result.get("weekly", {})
+if _weekly:
+    _w_conf = _weekly.get("weekly_confirmed")
+    _w_sub = _weekly.get("weekly_s2_substage", "")
+    st.caption(f"Weekly: {'✓ Confirmed' if _w_conf else '✗ Not confirmed'}{f' ({_w_sub} S2)' if _w_sub else ''} | {_weekly.get('weekly_pct_above_ma', 0):.1f}% above 30W MA")
+
+_consol = stage_result.get("consolidation", {})
+if _consol and _consol.get("quality_grade"):
+    st.caption(f"Consolidation: Grade {_consol['quality_grade']} | Depth: {_consol.get('depth_pct', 0):.0f}% | Vol dry-up: {_consol.get('vol_dryup_pct', 0):.0f}%")
+
+_transitions = stage_result.get("transitions", [])
+if _transitions:
+    _tr = _transitions[0]
+    st.caption(f"Stage Transition: {_tr['transition']} ({_tr['signal']}) ~{_tr['days_ago']} days ago")
+
 st.markdown("**Stage 2 Checklist**")
 s2_checks = stage.get("s2_checks", {})
 check_cols = st.columns(min(len(s2_checks), 4)) if s2_checks else []
@@ -910,6 +937,59 @@ else:
     st.error(f"VETOED (confidence: {veto_result['confidence']})")
     for reason in veto_result.get("reasons", []):
         st.markdown(f"- {reason}")
+
+# ── Earnings Acceleration ─────────────────────────────────────
+st.divider()
+st.subheader("Earnings Acceleration")
+try:
+    from earnings_analysis import compute_earnings_acceleration
+    _ea = compute_earnings_acceleration(ticker)
+    if _ea.get("data_available"):
+        _ea_trend = _ea.get("trend", "stable")
+        _ea_score = _ea.get("combined_score", 0)
+        ea1, ea2, ea3, ea4 = st.columns(4)
+        ea1.metric("Trend", _ea_trend.title())
+        ea2.metric("Score", f"{_ea_score:.0f}/100")
+        ea3.metric("EPS Accel", "Yes" if _ea.get("eps_acceleration") else "No")
+        ea4.metric("Rev Accel", "Yes" if _ea.get("revenue_acceleration") else "No")
+        _eps_yoy = _ea.get("eps_yoy_growth", [])
+        _rev_yoy = _ea.get("revenue_yoy_growth", [])
+        if _eps_yoy or _rev_yoy:
+            with st.expander("Quarterly YoY Growth Detail", expanded=False):
+                if _eps_yoy:
+                    st.markdown("**EPS YoY (newest first):** " + " → ".join(f"{v:+.1f}%" for v in _eps_yoy[:4]))
+                if _rev_yoy:
+                    st.markdown("**Revenue YoY (newest first):** " + " → ".join(f"{v:+.1f}%" for v in _rev_yoy[:4]))
+    else:
+        st.caption("Earnings data not available for this ticker.")
+except Exception as _e:
+    st.caption(f"Earnings analysis: {_e}")
+
+# ── Value Analysis ────────────────────────────────────────────
+st.divider()
+st.subheader("Value Analysis")
+try:
+    from value_analysis import compute_value_score
+    _va = compute_value_score(ticker)
+    if _va.get("data_available"):
+        va1, va2, va3, va4, va5 = st.columns(5)
+        va1.metric("Value Score", f"{_va.get('composite_score', 0):.0f}/100")
+        va2.metric("ROIC", f"{_va['roic_latest']:.1f}%" if _va.get('roic_latest') else "N/A")
+        va3.metric("FCF Yield", f"{_va['fcf_yield']:.1f}%" if _va.get('fcf_yield') else "N/A")
+        va4.metric("Fortress", f"{_va['fortress_score']:.0f}" if _va.get('fortress_score') else "N/A")
+        va5.metric("Moat", f"{_va['moat_score']:.0f}" if _va.get('moat_score') else "N/A")
+        with st.expander("Value Breakdown", expanded=False):
+            if _va.get("roic_history"):
+                st.markdown("**ROIC History:** " + " → ".join(f"{v:.1f}%" for v in _va["roic_history"][:5]))
+            if _va.get("dcf_upside") is not None:
+                _dcf_c = "#26a69a" if _va["dcf_upside"] > 0 else "#ef5350"
+                st.markdown(f"**DCF Upside:** <span style='color:{_dcf_c}'>{_va['dcf_upside']:+.1f}%</span>", unsafe_allow_html=True)
+            if _va.get("cash_conversion") is not None:
+                st.markdown(f"**Cash Conversion:** {_va['cash_conversion']:.0f}%")
+    else:
+        st.caption("Value analysis data not available for this ticker.")
+except Exception as _e:
+    st.caption(f"Value analysis: {_e}")
 
 # ── Company Description ────────────────────────────────────────
 desc = info.get("longBusinessSummary")

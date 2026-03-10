@@ -270,13 +270,39 @@ PROFIT_CONFIG = {
     "climax_volume_multiple": 3.0,  # 3x avg volume on biggest up-day = climax
 }
 
-# ── Conviction Scoring Weights ───────────────────────────────
+# ── Conviction Scoring Weights (Tri-Factor) ──────────────────
 CONVICTION_CONFIG = {
-    "sector_rank_weight": 40,       # Top sector = max 40 pts
-    "stage2_score_weight": 20,      # Perfect S2 (7/7) = 20 pts
-    "base_count_weight": 10,        # 1st base = 10 pts
-    "rs_percentile_weight": 15,     # Top RS = 15 pts
-    "accumulation_weight": 15,      # Top accumulation = 15 pts
+    # Tri-factor pillar weights (must sum to 100)
+    "technical_weight": 50,         # Technical: sector + stage + RS + patterns
+    "value_weight": 25,             # Value: ROIC + FCF + fortress + DCF + moat
+    "macro_weight": 25,             # Macro: liquidity + earnings accel + FII
+    # Legacy sub-weights (within technical pillar)
+    "sector_rank_weight": 40,
+    "stage2_score_weight": 20,
+    "base_count_weight": 10,
+    "rs_percentile_weight": 15,
+    "accumulation_weight": 15,
+}
+
+# ── Value Analysis Config ─────────────────────────────────────
+VALUE_ANALYSIS_CONFIG = {
+    "roic_weight": 25,              # ROIC history (Buffett)
+    "fcf_weight": 20,               # FCF yield & quality
+    "fortress_weight": 20,          # Balance sheet strength
+    "dcf_weight": 20,               # DCF margin of safety
+    "moat_weight": 15,              # Competitive moat
+    "wacc": 0.12,                   # Indian market WACC default
+    "terminal_growth": 0.03,        # Terminal growth rate
+    "min_roic_pct": 12,             # Minimum ROIC for quality
+    "min_fcf_yield_pct": 3,         # Minimum FCF yield
+}
+
+# ── R:R Scanner Config ────────────────────────────────────────
+RR_SCANNER_CONFIG = {
+    "min_rr_ratio": 3.0,            # Minimum R:R to qualify
+    "ideal_rr_ratio": 5.0,          # Sweet spot for Druckenmiller
+    "max_risk_pct": 8.0,            # Max risk % per trade
+    "target_r_multiples": [1.0, 2.0, 3.0, 5.0, 8.0],
 }
 
 # ── Smart Money Config ───────────────────────────────────────
@@ -305,6 +331,50 @@ ALLOCATION_CONFIG = {
 MACRO_DERIVATIVE_LABELS = ["VIX", "Dollar Index", "Crude Oil", "Gold", "US 10Y"]
 
 FII_DII_CACHE_TTL_HOURS = 1
+
+# ── Macro Liquidity Scoring ────────────────────────────────────
+MACRO_LIQUIDITY_CONFIG = {
+    "fii_flow_weight": 30,        # FII net flow trend (30%)
+    "vix_trend_weight": 25,       # VIX trend direction (25%)
+    "usdinr_trend_weight": 20,    # USD/INR weakening = positive (20%)
+    "yield_curve_weight": 25,     # 10Y-5Y spread direction (25%)
+    "fii_lookback_days": [5, 10, 21],  # lookback windows for flow trend
+    "vix_overbought": 25,         # India VIX above this = fear
+    "vix_oversold": 14,           # India VIX below this = calm
+    "usdinr_strong_threshold": 1.0,  # % weakening = headwind
+    "yield_curve_inversion_threshold": -0.1,  # negative spread = warning
+}
+
+# ── Weekly Stage Confirmation ──────────────────────────────────
+WEEKLY_STAGE_CONFIG = {
+    "weekly_ma_period": 30,       # 30-week MA (Weinstein's primary)
+    "weekly_ma_rising_weeks": 4,  # must be rising for 4+ weeks
+    "weekly_close_above_ma": True,
+}
+
+# ── Earnings Acceleration ──────────────────────────────────────
+EARNINGS_ACCEL_CONFIG = {
+    "min_quarters": 3,            # need at least 3 quarters of data
+    "acceleration_bonus": 10,     # conviction bonus for accelerating earnings
+    "deceleration_penalty": -5,   # conviction penalty for decelerating
+}
+
+# ── Consolidation Quality ──────────────────────────────────────
+CONSOLIDATION_QUALITY_CONFIG = {
+    "tight_range_threshold_pct": 15,
+    "very_tight_threshold_pct": 10,
+    "volume_dryup_threshold": 0.6,
+    "min_quality_grade": "B",
+}
+
+# ── FII/DII Flow Gating ──────────────────────────────────────
+FII_GATING_CONFIG = {
+    "fii_5d_threshold": -2000,     # Cr; below this = red flag
+    "fii_10d_threshold": -5000,    # Cr; sustained outflow = danger
+    "dii_support_threshold": 1000,  # Cr; DII buying can offset FII
+    "gate_action": "reduce_size",   # "reduce_size" or "block_new"
+    "size_reduction_pct": 50,       # halve position size when gated
+}
 
 # ── Earnings Season ──────────────────────────────────────────
 NIFTY100_CSV_URL = "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"

@@ -160,6 +160,36 @@ if deriv_results:
                 unsafe_allow_html=True,
             )
 
+# ── Breadth by Weinstein Stage ─────────────────────────────────
+breadth = st.session_state.get("breadth_by_stage")
+if breadth:
+    st.subheader("Breadth by Weinstein Stage")
+    s_pcts = breadth.get("stage_pcts", {})
+    s_counts = breadth.get("stage_counts", {})
+    b_score = breadth.get("breadth_score", 50)
+    b_label = breadth.get("breadth_label", "")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Stage 1 (Basing)", f"{s_pcts.get(1, 0):.0f}%", help=f"{s_counts.get(1, 0)} stocks")
+    c2.metric("Stage 2 (Advancing)", f"{s_pcts.get(2, 0):.0f}%", help=f"{s_counts.get(2, 0)} stocks")
+    c3.metric("Stage 3 (Topping)", f"{s_pcts.get(3, 0):.0f}%", help=f"{s_counts.get(3, 0)} stocks")
+    c4.metric("Stage 4 (Declining)", f"{s_pcts.get(4, 0):.0f}%", help=f"{s_counts.get(4, 0)} stocks")
+    c5.metric("Breadth Score", f"{b_score:.0f}", delta=b_label)
+    s2_bo = breadth.get("s2_with_breakouts", 0)
+    if s2_bo:
+        st.caption(f"{s2_bo} Stage 2 stocks with active breakouts ({breadth.get('s2_breakout_pct', 0):.1f}% of universe)")
+
+# ── Macro Liquidity Score ─────────────────────────────────────
+macro_liq = st.session_state.get("macro_liquidity")
+if macro_liq:
+    st.subheader("Macro Liquidity")
+    ml_score = macro_liq.get("score", 50)
+    ml_label = macro_liq.get("label", "")
+    ml1, ml2, ml3 = st.columns(3)
+    ml1.metric("Liquidity Score", f"{ml_score:.0f}/100")
+    ml2.metric("Regime", ml_label)
+    adj = macro_liq.get("regime_adjustment", 0)
+    ml3.metric("Regime Adj", f"{adj:+d}" if adj else "0")
+
 # ── Nifty Candlestick Chart ────────────────────────────────────
 st.subheader("Nifty 50 Index")
 _nifty_tf_label = st.radio("Timeframe", ["Daily", "Weekly", "Monthly"], index=1, horizontal=True, key="regime_nifty_tf")

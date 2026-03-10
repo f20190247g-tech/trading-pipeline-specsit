@@ -4,12 +4,14 @@ Determines overall market posture: Aggressive / Normal / Cautious / Defensive / 
 """
 import pandas as pd
 import numpy as np
-from config import REGIME_CONFIG, REGIME_POSTURE
+from config import REGIME_CONFIG, REGIME_POSTURE, MACRO_LIQUIDITY_CONFIG
+from scoring_utils import normalize_score, weighted_composite, grade_score
 
 
 def compute_regime(
     nifty_df: pd.DataFrame,
     all_stock_data: dict[str, pd.DataFrame],
+    macro_liquidity: dict | None = None,
 ) -> dict:
     """
     Analyze market regime based on:
@@ -146,6 +148,16 @@ def compute_regime(
 
     # ── Aggregate Regime Score ──────────────────────────────────
     raw_score = sum(scores)  # range: -5 to +5
+
+    # ── Signal 6 (optional): Macro Liquidity Adjustment ───────
+    if macro_liquidity:
+        ml_adj = macro_liquidity.get("regime_adjustment", 0)
+        raw_score += ml_adj
+        signals["macro_liquidity"] = {
+            "score": ml_adj,
+            "detail": f"Macro liquidity: {macro_liquidity['label']} (score {macro_liquidity['score']:.0f}, adj {ml_adj:+d})",
+        }
+
     # Map to -2..+2 scale
     if raw_score >= 4:
         regime_score = 2
@@ -186,6 +198,7 @@ def compute_regime(
         "posture": posture,
         "signals": signals,
         "breadth_trend": breadth_trend,
+        "macro_liquidity": macro_liquidity,
         "summary": (
             f"Market Regime: {posture['label']} (score {regime_score}, raw {raw_score}/5)\n"
             f"  Breadth trend: {breadth_trend}\n"
@@ -193,6 +206,113 @@ def compute_regime(
             f"Risk/trade: {posture['risk_per_trade_pct']}% | "
             f"Max new positions: {posture['max_new_positions']}"
         ),
+    }
+
+
+def compute_macro_liquidity_score(
+    macro_data: dict,
+    fii_dii_data: dict | None = None,
+) -> dict:
+    """Compute macro liquidity regime score from FII flows, VIX, USD/INR, yield curve.
+
+    Args:
+        macro_data: Dict from fetch_macro_data() with keys like "India VIX", "USD/INR", etc.
+        fii_dii_data: Optional dict with FII/DII cumulative flows by timeframe.
+
+    Returns:
+        Dict with score (0-100), components, label, and regime adjustment.
+    """
+    cfg = MACRO_LIQUIDITY_CONFIG
+    components = {}
+
+    # ── Component 1: FII Flow Trend (30%) ──────────────────────
+    fii_score = 50.0  # neutral default
+    if fii_dii_data:
+        # Check multiple timeframes for flow direction
+        flow_signals = []
+        for key in ["1w", "2w", "1m"]:
+            flow = fii_dii_data.get(key, {}).get("fii_net", 0)
+            if flow > 0:
+                flow_signals.append(1)
+            elif flow < 0:
+                flow_signals.append(-1)
+            else:
+                flow_signals.append(0)
+
+        # Weight recent flows more
+        if flow_signals:
+            weighted_flow = (
+                flow_signals[0] * 0.5 +  # 1w (most recent)
+                (flow_signals[1] if len(flow_signals) > 1 else 0) * 0.3 +
+                (flow_signals[2] if len(flow_signals) > 2 else 0) * 0.2
+            )
+            fii_score = normalize_score(weighted_flow, -1, 1)
+
+    components["fii_flows"] = {"score": fii_score, "weight": cfg["fii_flow_weight"]}
+
+    # ── Component 2: VIX Trend (25%) ──────────────────────────
+    vix_score = 50.0
+    vix_data = macro_data.get("India VIX", {})
+    if vix_data:
+        vix_price = vix_data.get("price", 18)
+        # Lower VIX = better liquidity environment
+        vix_score = normalize_score(vix_price, cfg["vix_overbought"], cfg["vix_oversold"])
+
+        # Bonus/penalty for VIX direction
+        vix_change = vix_data.get("change_pct", 0)
+        if vix_change < -3:  # VIX dropping fast = bullish
+            vix_score = min(100, vix_score + 10)
+        elif vix_change > 5:  # VIX spiking = bearish
+            vix_score = max(0, vix_score - 15)
+
+    components["vix_trend"] = {"score": vix_score, "weight": cfg["vix_trend_weight"]}
+
+    # ── Component 3: USD/INR Trend (20%) ─────────────────────
+    usdinr_score = 50.0
+    usdinr_data = macro_data.get("USD/INR", {})
+    if usdinr_data:
+        # Weakening rupee (rising USD/INR) = headwind for equity
+        usdinr_change = usdinr_data.get("change_pct", 0)
+        # Negative change_pct means rupee strengthening = positive
+        usdinr_score = normalize_score(usdinr_change, cfg["usdinr_strong_threshold"], -cfg["usdinr_strong_threshold"])
+
+    components["usdinr_trend"] = {"score": usdinr_score, "weight": cfg["usdinr_trend_weight"]}
+
+    # ── Component 4: Yield Curve (25%) ─────────────────────────
+    yc_score = 50.0
+    spread_data = macro_data.get("10Y-5Y Spread", {})
+    if spread_data:
+        spread = spread_data.get("price", 0)
+        # Positive spread = healthy, negative = inversion warning
+        yc_score = normalize_score(spread, cfg["yield_curve_inversion_threshold"], 1.0)
+
+    components["yield_curve"] = {"score": yc_score, "weight": cfg["yield_curve_weight"]}
+
+    # ── Composite Score ────────────────────────────────────────
+    composite = weighted_composite([
+        (c["score"], c["weight"]) for c in components.values()
+    ])
+
+    # Map to label
+    if composite >= 70:
+        label = "Supportive"
+        regime_adj = 1  # boost regime by +1
+    elif composite >= 45:
+        label = "Neutral"
+        regime_adj = 0
+    elif composite >= 25:
+        label = "Headwind"
+        regime_adj = -1
+    else:
+        label = "Hostile"
+        regime_adj = -2
+
+    return {
+        "score": composite,
+        "grade": grade_score(composite),
+        "label": label,
+        "regime_adjustment": regime_adj,
+        "components": components,
     }
 
 

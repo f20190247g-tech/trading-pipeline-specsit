@@ -256,6 +256,92 @@ def _check_pullback_add(df: pd.DataFrame) -> bool:
     return False
 
 
+def compute_pyramid_triggers(position: dict, df: pd.DataFrame) -> list[dict]:
+    """Compute pyramid add triggers for an existing position.
+
+    Pyramid rules (Minervini/O'Neil):
+    1. Only add when position is profitable (proving the trade is working)
+    2. Add on pullbacks to rising 10/21 EMA
+    3. Add on breakout from tight consolidation within the trend
+    4. Never add more than ALLOCATION_CONFIG max_pyramid_adds
+
+    Returns list of trigger dicts with conditions and suggested action.
+    """
+    from config import ALLOCATION_CONFIG
+
+    entry_price = position["entry_price"]
+    current_price = float(df["Close"].iloc[-1])
+    gain_pct = ((current_price / entry_price) - 1) * 100
+
+    tranches = position.get("tranches", [])
+    num_adds = len(tranches) - 1  # first tranche is the initial buy
+    max_adds = ALLOCATION_CONFIG["max_pyramid_adds"]
+    min_gain = ALLOCATION_CONFIG["pyramid_min_gain_pct"]
+
+    triggers = []
+
+    if num_adds >= max_adds:
+        return [{"trigger": "MAX_ADDS_REACHED", "active": False,
+                 "detail": f"Already at {num_adds} adds (max {max_adds})"}]
+
+    if gain_pct < min_gain:
+        return [{"trigger": "NOT_PROFITABLE_ENOUGH", "active": False,
+                 "detail": f"Gain {gain_pct:.1f}% < min {min_gain}% for pyramid"}]
+
+    # Trigger 1: Pullback to 10 EMA
+    if len(df) >= 15:
+        ema10 = df["Close"].ewm(span=10).mean()
+        ema_val = float(ema10.iloc[-1])
+        distance_to_ema = abs((current_price / ema_val) - 1) * 100
+
+        if distance_to_ema <= 2.0 and current_price > entry_price:
+            triggers.append({
+                "trigger": "PULLBACK_TO_10EMA",
+                "active": True,
+                "price_level": round(ema_val, 2),
+                "detail": f"Price within {distance_to_ema:.1f}% of 10 EMA ({ema_val:.1f})",
+            })
+
+    # Trigger 2: Pullback to 21 EMA
+    if len(df) >= 25:
+        ema21 = df["Close"].ewm(span=21).mean()
+        ema21_val = float(ema21.iloc[-1])
+        distance_to_ema21 = abs((current_price / ema21_val) - 1) * 100
+
+        if distance_to_ema21 <= 2.0 and current_price > entry_price:
+            triggers.append({
+                "trigger": "PULLBACK_TO_21EMA",
+                "active": True,
+                "price_level": round(ema21_val, 2),
+                "detail": f"Price within {distance_to_ema21:.1f}% of 21 EMA ({ema21_val:.1f})",
+            })
+
+    # Trigger 3: New base breakout while in trend
+    # Check if recent price formed a tight range and is breaking out
+    if len(df) >= 30:
+        recent_20 = df.tail(20)
+        high_20 = recent_20["High"].max()
+        low_20 = recent_20["Low"].min()
+        range_pct = (high_20 - low_20) / high_20 * 100
+
+        if range_pct <= 10 and current_price >= high_20 * 0.99:
+            triggers.append({
+                "trigger": "TIGHT_RANGE_BREAKOUT",
+                "active": True,
+                "price_level": round(float(high_20), 2),
+                "detail": f"Breaking out of {range_pct:.1f}% range (last 20 days)",
+            })
+
+    if not triggers:
+        triggers.append({
+            "trigger": "NO_TRIGGER",
+            "active": False,
+            "detail": f"Position +{gain_pct:.1f}% but no pyramid trigger active",
+        })
+
+    return triggers
+
+
 def get_positions_summary(stock_data: dict) -> list[dict]:
     """Enrich each active position with current price, updated trailing stop,
     and suggested action.
@@ -347,6 +433,9 @@ def get_positions_summary(stock_data: dict) -> list[dict]:
         pos["highest_close"] = highest_close
         pos["trailing_stop"] = trailing_stop
 
+        # Pyramid triggers
+        pyramid_triggers = compute_pyramid_triggers(pos, df) if df is not None and not df.empty else []
+
         summaries.append({
             **pos,
             "current_price": round(current_price, 2),
@@ -356,6 +445,7 @@ def get_positions_summary(stock_data: dict) -> list[dict]:
             "atr": round(atr_val, 2),
             "suggested_action": action,
             "action_reason": reason,
+            "pyramid_triggers": pyramid_triggers,
         })
 
     # Save updated positions (trailing stops, highest close)

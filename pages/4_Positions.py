@@ -393,6 +393,19 @@ else:
                             st.success(f"Added {tranche_shares} shares @ {tranche_price:.2f}")
                             st.rerun()
 
+            # ── Pyramid Triggers ────────────────────────────
+            triggers = s.get("pyramid_triggers", {})
+            if triggers and any(triggers.values()):
+                active = [k.replace("_", " ").title() for k, v in triggers.items() if v]
+                trig_text = " · ".join(active)
+                st.markdown(
+                    f'<div style="background:#26a69a18; border-left:3px solid #26a69a; '
+                    f'padding:8px 12px; border-radius:0 6px 6px 0; margin:8px 0;">'
+                    f'<span style="font-weight:600; color:#26a69a;">Pyramid Triggers Active:</span> '
+                    f'<span style="color:#ccc;">{trig_text}</span></div>',
+                    unsafe_allow_html=True,
+                )
+
             # 8-week hold warning
             if s.get("hold_until"):
                 st.info(

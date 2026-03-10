@@ -81,6 +81,59 @@ def analyze_rs_trend(mansfield_rs: pd.Series, lookback: int = 21) -> str:
     return "flat"
 
 
+def classify_sector_stage(sector_close: pd.Series) -> dict:
+    """Classify a sector index into Weinstein Stage 1-4.
+
+    Uses 150-day MA as the primary decision line (≈30 weeks).
+
+    Returns:
+        dict with stage, detail, ma_slope, pct_above_ma.
+    """
+    if len(sector_close) < 200:
+        return {"stage": 0, "detail": "Insufficient data"}
+
+    ma150 = sector_close.rolling(150).mean()
+    ma50 = sector_close.rolling(50).mean()
+
+    latest = sector_close.iloc[-1]
+    latest_ma150 = ma150.iloc[-1]
+    latest_ma50 = ma50.iloc[-1]
+
+    if pd.isna(latest_ma150):
+        return {"stage": 0, "detail": "MA not available"}
+
+    # MA slope (20-day)
+    ma_slope = (ma150.iloc[-1] - ma150.iloc[-20]) / ma150.iloc[-20] * 100
+    pct_above_ma = (latest / latest_ma150 - 1) * 100
+
+    # Stage classification
+    if latest > latest_ma150 and ma_slope > 0.1 and latest_ma50 > latest_ma150:
+        stage = 2  # Advancing
+        if pct_above_ma <= 5:
+            substage = "Early S2"
+        elif pct_above_ma <= 12:
+            substage = "Mid S2"
+        else:
+            substage = "Late S2"
+    elif latest > latest_ma150 and ma_slope < 0.1 and ma_slope > -0.1:
+        stage = 3  # Topping
+        substage = "Topping"
+    elif latest < latest_ma150 and ma_slope < 0:
+        stage = 4  # Declining
+        substage = "Declining"
+    else:
+        stage = 1  # Basing
+        substage = "Basing"
+
+    return {
+        "stage": stage,
+        "substage": substage,
+        "ma_slope": round(ma_slope, 2),
+        "pct_above_ma": round(pct_above_ma, 1),
+        "detail": f"Stage {stage} ({substage})",
+    }
+
+
 def scan_sectors(
     sector_data: dict[str, pd.DataFrame],
     nifty_df: pd.DataFrame,
@@ -108,6 +161,8 @@ def scan_sectors(
         if len(mrs.dropna()) < 20:
             continue
 
+        sector_stage = classify_sector_stage(sector_close)
+
         # 5-day trailing mean for ranking stability
         latest_rs = mrs.iloc[-5:].mean() if len(mrs) >= 5 else mrs.iloc[-1]
         rs_trend = analyze_rs_trend(mrs)
@@ -132,6 +187,7 @@ def scan_sectors(
             "rs_trend": rs_trend,
             "momentum": momentum,
             "composite_score": round(composite, 2),
+            "sector_stage": sector_stage,
         })
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)

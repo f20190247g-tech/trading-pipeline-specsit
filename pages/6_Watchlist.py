@@ -42,18 +42,21 @@ with tab_buy:
             entry_setup = b.get("entry_setup", {}) or {}
             fund_flag = b.get("fundamental_flag", "CLEAN")
             fund_icon = "✅" if fund_flag == "CLEAN" else "⚠️"
+            pillars = b.get("conviction_pillars", {})
+            ea = b.get("earnings_analysis", {})
             rows.append({
-                "Ticker": b["ticker"],
+                "Ticker": b["ticker"].replace(".NS", ""),
                 "Sector": b.get("sector", ""),
+                "Conv": round(b.get("conviction_score", 0)),
+                "T/V/M": f"{pillars.get('technical', 0):.0f}/{pillars.get('value', 0):.0f}/{pillars.get('macro', 0):.0f}",
                 "Entry": round(entry_setup.get("entry_price", 0), 1),
                 "Stop": round(entry_setup.get("effective_stop", 0), 1),
                 "Risk %": f"{entry_setup.get('risk_pct', 0):.1f}%",
+                "R:R": f"{targets.get('reward_risk_ratio', 0):.1f}",
                 "Shares": pos.get("shares", 0),
                 "Value": format_large_number(pos.get("position_value", 0)),
-                "Risk Amt": format_large_number(pos.get("risk_amount", 0)),
-                "Target 1": round(targets.get("first_target", 0), 1),
-                "R:R": f"{targets.get('reward_risk_ratio', 0):.1f}",
-                "Fund": f"{fund_icon} {fund_flag}",
+                "Earnings": ea.get("trend", "-") if ea.get("data_available") else "-",
+                "Fund": f"{fund_icon}",
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -83,15 +86,20 @@ with tab_watch:
             entry_setup = w.get("entry_setup", {}) or {}
             fund_flag = w.get("fundamental_flag", "CLEAN")
             fund_icon = "✅" if fund_flag == "CLEAN" else "⚠️"
+            pillars = w.get("conviction_pillars", {})
+            ea = w.get("earnings_analysis", {})
+            weekly = w.get("weekly", {})
             rows.append({
-                "Ticker": w["ticker"],
+                "Ticker": w["ticker"].replace(".NS", ""),
                 "Sector": w.get("sector", ""),
-                "Entry": round(entry_setup.get("entry_price", 0), 1) if entry_setup.get("entry_price") else "Pending",
-                "Stop": round(entry_setup.get("effective_stop", 0), 1) if entry_setup.get("effective_stop") else "",
-                "Stage Score": f"{w.get('stage', {}).get('s2_score', 0)}/7",
+                "Conv": round(w.get("conviction_score", 0)),
+                "T/V/M": f"{pillars.get('technical', 0):.0f}/{pillars.get('value', 0):.0f}/{pillars.get('macro', 0):.0f}",
+                "S2": f"{w.get('stage', {}).get('s2_score', 0)}/7",
+                "Weekly": "✓" if weekly.get("weekly_confirmed") else "✗",
                 "RS": round(w.get("rs_vs_nifty", 0), 2),
+                "Earnings": ea.get("trend", "-") if ea.get("data_available") else "-",
                 "Action": w.get("action", ""),
-                "Fund": f"{fund_icon} {fund_flag}",
+                "Fund": f"{fund_icon}",
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -117,17 +125,24 @@ for w in watchlist:
     entry_setup = w.get("entry_setup", {}) or {}
     pos = w.get("position", {})
     targets = w.get("targets", {})
+    pillars = w.get("conviction_pillars", {})
+    ea = w.get("earnings_analysis", {})
     all_rows.append({
         "Ticker": w["ticker"],
         "Sector": w.get("sector", ""),
         "Action": w.get("action", ""),
+        "Conviction": w.get("conviction_score", ""),
+        "Technical": pillars.get("technical", ""),
+        "Value": pillars.get("value", ""),
+        "Macro": pillars.get("macro", ""),
         "Fund Flag": w.get("fundamental_flag", ""),
         "Entry": entry_setup.get("entry_price", ""),
         "Stop": entry_setup.get("effective_stop", ""),
-        "Shares": pos.get("shares", ""),
-        "Value": pos.get("position_value", ""),
-        "Target": targets.get("first_target", ""),
+        "Risk %": entry_setup.get("risk_pct", ""),
         "R:R": targets.get("reward_risk_ratio", ""),
+        "Shares": pos.get("shares", ""),
+        "Value_Rs": pos.get("position_value", ""),
+        "Earnings": ea.get("trend", ""),
         "RS vs Nifty": w.get("rs_vs_nifty", ""),
     })
 csv_df = pd.DataFrame(all_rows)

@@ -77,9 +77,12 @@ for i, s in enumerate(sector_rankings):
     sector_name = s["sector"]
     deriv = all_sector_derivs.get(sector_name, {})
     inflection = deriv.get("inflection", {})
+    sector_stage = s.get("sector_stage", "")
+    stage_label = f"S{sector_stage}" if sector_stage else "—"
     rows.append({
         "Rank": i + 1,
         "Sector": sector_name,
+        "Stage": stage_label,
         "RS": s["mansfield_rs"],
         "Trend": s["rs_trend"],
         "1w": mom.get("1w", None),
