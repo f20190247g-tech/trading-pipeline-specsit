@@ -972,20 +972,29 @@ try:
     from value_analysis import compute_value_score
     _va = compute_value_score(ticker)
     if _va.get("data_available"):
+        _roic = _va.get("roic", {})
+        _fcf = _va.get("fcf", {})
+        _fort = _va.get("fortress", {})
+        _moat = _va.get("moat", {})
+        _dcf = _va.get("dcf", {})
+
         va1, va2, va3, va4, va5 = st.columns(5)
-        va1.metric("Value Score", f"{_va.get('composite_score', 0):.0f}/100")
-        va2.metric("ROIC", f"{_va['roic_latest']:.1f}%" if _va.get('roic_latest') else "N/A")
-        va3.metric("FCF Yield", f"{_va['fcf_yield']:.1f}%" if _va.get('fcf_yield') else "N/A")
-        va4.metric("Fortress", f"{_va['fortress_score']:.0f}" if _va.get('fortress_score') else "N/A")
-        va5.metric("Moat", f"{_va['moat_score']:.0f}" if _va.get('moat_score') else "N/A")
+        va1.metric("Value Score", f"{_va.get('value_score', 0):.0f}/100")
+        va2.metric("ROIC", f"{_roic['avg_roic_3y']:.1f}%" if _roic.get('avg_roic_3y') else "N/A")
+        va3.metric("FCF Yield", f"{_fcf['fcf_yield_pct']:.1f}%" if _fcf.get('fcf_yield_pct') else "N/A")
+        va4.metric("Fortress", f"{_fort['fortress_score']:.0f}" if _fort.get('fortress_score') else "N/A")
+        va5.metric("Moat", _moat.get('moat_grade', 'N/A') if _moat.get('data_available') else "N/A")
         with st.expander("Value Breakdown", expanded=False):
-            if _va.get("roic_history"):
-                st.markdown("**ROIC History:** " + " → ".join(f"{v:.1f}%" for v in _va["roic_history"][:5]))
-            if _va.get("dcf_upside") is not None:
-                _dcf_c = "#26a69a" if _va["dcf_upside"] > 0 else "#ef5350"
-                st.markdown(f"**DCF Upside:** <span style='color:{_dcf_c}'>{_va['dcf_upside']:+.1f}%</span>", unsafe_allow_html=True)
-            if _va.get("cash_conversion") is not None:
-                st.markdown(f"**Cash Conversion:** {_va['cash_conversion']:.0f}%")
+            _roic_hist = _roic.get("roic_history", [])
+            if _roic_hist:
+                st.markdown("**ROIC History:** " + " → ".join(f"{r['roic_pct']:.1f}%" for r in _roic_hist[:5]))
+            _dcf_upside = _dcf.get("upside_pct")
+            if _dcf_upside is not None:
+                _dcf_c = "#26a69a" if _dcf_upside > 0 else "#ef5350"
+                st.markdown(f"**DCF Upside:** <span style='color:{_dcf_c}'>{_dcf_upside:+.1f}%</span>", unsafe_allow_html=True)
+            _cash_conv = _fcf.get("cash_conversion")
+            if _cash_conv is not None:
+                st.markdown(f"**Cash Conversion:** {_cash_conv:.2f}x")
     else:
         st.caption("Value analysis data not available for this ticker.")
 except Exception as _e:
