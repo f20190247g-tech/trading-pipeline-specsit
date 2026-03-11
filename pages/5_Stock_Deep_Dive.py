@@ -902,17 +902,17 @@ if entry_setup:
         pass
 
 # Weekly confirmation + consolidation + transitions
-_weekly = stage_result.get("weekly", {})
+_weekly = analysis.get("weekly", {})
 if _weekly:
     _w_conf = _weekly.get("weekly_confirmed")
     _w_sub = _weekly.get("weekly_s2_substage", "")
     st.caption(f"Weekly: {'✓ Confirmed' if _w_conf else '✗ Not confirmed'}{f' ({_w_sub} S2)' if _w_sub else ''} | {_weekly.get('weekly_pct_above_ma', 0):.1f}% above 30W MA")
 
-_consol = stage_result.get("consolidation", {})
+_consol = analysis.get("consolidation", {})
 if _consol and _consol.get("quality_grade"):
     st.caption(f"Consolidation: Grade {_consol['quality_grade']} | Depth: {_consol.get('depth_pct', 0):.0f}% | Vol dry-up: {_consol.get('vol_dryup_pct', 0):.0f}%")
 
-_transitions = stage_result.get("transitions", [])
+_transitions = analysis.get("transitions", [])
 if _transitions:
     _tr = _transitions[0]
     st.caption(f"Stage Transition: {_tr['transition']} ({_tr['signal']}) ~{_tr['days_ago']} days ago")
