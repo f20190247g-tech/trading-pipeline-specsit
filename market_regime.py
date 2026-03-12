@@ -2,6 +2,7 @@
 Layer 1: Market Regime Detector
 Determines overall market posture: Aggressive / Normal / Cautious / Defensive / Cash
 """
+from __future__ import annotations
 import pandas as pd
 import numpy as np
 from config import REGIME_CONFIG, REGIME_POSTURE, MACRO_LIQUIDITY_CONFIG
