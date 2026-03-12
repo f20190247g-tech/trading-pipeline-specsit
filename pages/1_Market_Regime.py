@@ -160,6 +160,124 @@ if deriv_results:
                 unsafe_allow_html=True,
             )
 
+# ══════════════════════════════════════════════════════════════════
+# SECTION 2: Stockbee Breadth Monitor
+# ══════════════════════════════════════════════════════════════════
+_sb = st.session_state.get("stockbee_breadth")
+if _sb and _sb.get("daily"):
+    st.subheader("Breadth Monitor (Stockbee-style)")
+    st.caption(f"Universe: {_sb.get('universe_size', 0)} stocks")
+
+    # ── Signal cards ─────────────────────────────────
+    sb_signals = _sb.get("signals", {})
+    sb_cols = st.columns(len(sb_signals))
+    for col, (sig_name, sig_data) in zip(sb_cols, sb_signals.items()):
+        sc = sig_data["score"]
+        sc_color = signal_color(sc)
+        icon = "+" if sc > 0 else ("-" if sc < 0 else "~")
+        with col:
+            st.markdown(
+                f'<div style="background:{sc_color}15;border:1px solid {sc_color}44;'
+                f'border-radius:8px;padding:10px;text-align:center;">'
+                f'<div style="font-size:1.3em;color:{sc_color};font-weight:700;">{icon}</div>'
+                f'<div style="font-size:0.8em;color:#ccc;margin-top:4px;">'
+                f'{sig_name.replace("_", " ").title()}</div>'
+                f'<div style="font-size:0.75em;color:#999;margin-top:4px;">'
+                f'{sig_data["detail"]}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Insights ─────────────────────────────────────
+    insights = _sb.get("insights", [])
+    if insights:
+        _type_styles = {
+            "danger": ("background:#ef535022;border-left:3px solid #ef5350;", "#ef5350"),
+            "warning": ("background:#FF980022;border-left:3px solid #FF9800;", "#FF9800"),
+            "positive": ("background:#26a69a22;border-left:3px solid #26a69a;", "#26a69a"),
+            "neutral": ("background:#88888822;border-left:3px solid #888;", "#aaa"),
+        }
+        for ins in insights:
+            style, color = _type_styles.get(ins["type"], _type_styles["neutral"])
+            st.markdown(
+                f'<div style="{style}padding:8px 14px;border-radius:0 6px 6px 0;'
+                f'margin:6px 0;font-size:0.85em;color:{color};">{ins["text"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Data table (last 15 days) ────────────────────
+    with st.expander("Breadth Data (last 15 days)", expanded=False):
+        daily_data = _sb.get("daily", [])[-15:]
+        if daily_data:
+            _sb_rows = []
+            for d in reversed(daily_data):  # newest first
+                _sb_rows.append({
+                    "Date": d["date"],
+                    "Up 4%": d["up_4_today"],
+                    "Dn 4%": d["dn_4_today"],
+                    "5d Ratio": f'{d["ratio_5d"]:.2f}' if d.get("ratio_5d") is not None else "-",
+                    "10d Ratio": f'{d["ratio_10d"]:.2f}' if d.get("ratio_10d") is not None else "-",
+                    "Up 25% Qtr": d["up_25_qtr"],
+                    "Dn 25% Qtr": d["dn_25_qtr"],
+                    "Up 25% Mo": d["up_25_month"],
+                    "Dn 25% Mo": d["dn_25_month"],
+                    "Up 13% 34d": d["up_13_34d"],
+                    "Dn 13% 34d": d["dn_13_34d"],
+                })
+            st.dataframe(pd.DataFrame(_sb_rows), use_container_width=True, hide_index=True)
+
+    # ── Ratio chart ──────────────────────────────────
+    daily_data_full = _sb.get("daily", [])
+    _ratio_dates = [d["date"] for d in daily_data_full if d.get("ratio_5d") is not None]
+    _ratio_5d = [d["ratio_5d"] for d in daily_data_full if d.get("ratio_5d") is not None]
+    _r10_dates = [d["date"] for d in daily_data_full if d.get("ratio_10d") is not None]
+    _ratio_10d = [d["ratio_10d"] for d in daily_data_full if d.get("ratio_10d") is not None]
+    if _ratio_dates:
+        import plotly.graph_objects as _go_sb
+        _fig_sb = _go_sb.Figure()
+        _fig_sb.add_trace(_go_sb.Scatter(
+            x=_ratio_dates, y=_ratio_5d, name="5-day Ratio",
+            line=dict(color="#2196F3", width=2),
+        ))
+        if _ratio_10d:
+            _fig_sb.add_trace(_go_sb.Scatter(
+                x=_r10_dates, y=_ratio_10d, name="10-day Ratio",
+                line=dict(color="#FF9800", width=2),
+            ))
+        _fig_sb.add_hline(y=1.0, line_dash="dash", line_color="#666",
+                          annotation_text="Neutral (1.0)")
+        _fig_sb.update_layout(
+            title="Momentum Ratio (Up 4% / Down 4%)",
+            height=350, template="plotly_dark",
+            yaxis_title="Ratio", xaxis_title="",
+            margin=dict(l=50, r=20, t=40, b=30),
+        )
+        st.plotly_chart(_fig_sb, use_container_width=True)
+
+    # ── Quarterly momentum pool chart ────────────────
+    _qtr_dates = [d["date"] for d in daily_data_full]
+    _qtr_up = [d["up_25_qtr"] for d in daily_data_full]
+    _qtr_dn = [d["dn_25_qtr"] for d in daily_data_full]
+    if _qtr_dates and any(_qtr_up):
+        import plotly.graph_objects as _go_qtr
+        _fig_qtr = _go_qtr.Figure()
+        _fig_qtr.add_trace(_go_qtr.Scatter(
+            x=_qtr_dates, y=_qtr_up, name="Up 25%+ (Quarter)",
+            line=dict(color="#26a69a", width=2),
+            fill="tozeroy", fillcolor="rgba(38,166,154,0.15)",
+        ))
+        _fig_qtr.add_trace(_go_qtr.Scatter(
+            x=_qtr_dates, y=_qtr_dn, name="Down 25%+ (Quarter)",
+            line=dict(color="#ef5350", width=2),
+            fill="tozeroy", fillcolor="rgba(239,83,80,0.15)",
+        ))
+        _fig_qtr.update_layout(
+            title="Quarterly Momentum Pool (Primary ON/OFF Signal)",
+            height=350, template="plotly_dark",
+            yaxis_title="Number of Stocks", xaxis_title="",
+            margin=dict(l=50, r=20, t=40, b=30),
+        )
+        st.plotly_chart(_fig_qtr, use_container_width=True)
+
 # ── Breadth by Weinstein Stage ─────────────────────────────────
 breadth = st.session_state.get("breadth_by_stage")
 if breadth:

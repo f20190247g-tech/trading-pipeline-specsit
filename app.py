@@ -87,7 +87,7 @@ from data_fetcher import (
     fetch_index_data, fetch_all_stock_data, fetch_sector_data,
     fetch_price_data, fetch_macro_data, get_sector_map,
 )
-from market_regime import compute_regime
+from market_regime import compute_regime, compute_stockbee_breadth
 from sector_rs import scan_sectors, get_top_sectors
 from stock_screener import screen_stocks
 from stage_filter import filter_stage2_candidates, scan_all_stages
@@ -121,7 +121,7 @@ WEEKLY_CACHE_KEYS = [
     "macro_data", "quality_radar", "universe_count",
     "ai_summary", "ai_summary_source",
     "earnings_season",
-    "macro_liquidity", "fii_gate", "breadth_by_stage",
+    "macro_liquidity", "fii_gate", "breadth_by_stage", "stockbee_breadth",
     "last_weekly_scan_date",
 ]
 
@@ -360,6 +360,10 @@ def run_weekend_scan():
             regime = compute_regime(nifty_df, all_stock_data, macro_liquidity=macro_liquidity)
             st.session_state.regime = regime
             st.write(f"  Regime: {regime['label']} (score {regime['regime_score']:+d})")
+
+            st.write("Computing Stockbee breadth indicators...")
+            stockbee = compute_stockbee_breadth(all_stock_data, lookback_days=30)
+            st.session_state.stockbee_breadth = stockbee
             progress.progress(40)
 
             # Step 4: Sector RS
