@@ -1154,7 +1154,7 @@ if all_stock_data:
     from plotly.subplots import make_subplots
 
     # Overall breadth
-    _breadth_df = compute_breadth_timeseries(all_stock_data, lookback=756)
+    _breadth_df = compute_breadth_timeseries(all_stock_data, lookback=1260)
     if not _breadth_df.empty:
         _fig_b = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                                subplot_titles=["% Stocks Above Moving Average", "Advance / Decline Line"],
@@ -1197,7 +1197,7 @@ if all_stock_data:
     _cap_b = compute_cap_breadth_timeseries(
         all_stock_data, nifty50_symbols=_n50_syms,
         midcap_symbols=_mid_syms, smallcap_symbols=_sm_syms,
-        lookback=756, ma_period=_cap_ma,
+        lookback=1260, ma_period=_cap_ma,
     )
     if _cap_b:
         _fig_cap = go.Figure()
@@ -1228,7 +1228,7 @@ if all_stock_data:
                                    key="breadth_sector_filter")
     if _ticker_to_sector and _sel_sectors:
         _filtered_map = {t: s for t, s in _ticker_to_sector.items() if s in _sel_sectors}
-        _sec_b = compute_sector_breadth_timeseries(all_stock_data, _filtered_map, lookback=756, ma_period=_sec_ma)
+        _sec_b = compute_sector_breadth_timeseries(all_stock_data, _filtered_map, lookback=1260, ma_period=_sec_ma)
         if _sec_b:
             _fig_sec = go.Figure()
             _sec_palette = ["#2196F3", "#FF9800", "#26a69a", "#AB47BC", "#ef5350", "#8BC34A", "#FFD700", "#00BCD4", "#FF5722", "#9C27B0"]

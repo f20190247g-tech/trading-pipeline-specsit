@@ -630,7 +630,7 @@ def fetch_index_history(ticker: str, period: str = "3y") -> pd.DataFrame:
 
 def compute_breadth_timeseries(
     all_stock_data: dict,
-    lookback: int = 756,  # ~3 years
+    lookback: int = 1260,  # ~3 years
 ) -> pd.DataFrame:
     """Compute daily breadth metrics: % above 50DMA, % above 200DMA, A/D line.
 
@@ -671,7 +671,7 @@ def compute_cap_breadth_timeseries(
     nifty50_symbols: list = None,
     midcap_symbols: list = None,
     smallcap_symbols: list = None,
-    lookback: int = 756,
+    lookback: int = 1260,
     ma_period: int = 50,
 ) -> dict:
     """Compute breadth by market cap tier (large/mid/small).
@@ -706,7 +706,7 @@ def compute_cap_breadth_timeseries(
 def compute_sector_breadth_timeseries(
     all_stock_data: dict,
     sector_map: dict,
-    lookback: int = 756,
+    lookback: int = 1260,
     ma_period: int = 50,
 ) -> dict:
     """Compute breadth per sector.
