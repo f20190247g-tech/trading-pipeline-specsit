@@ -527,6 +527,16 @@ def run_weekend_scan():
                     if t in _mv and "value_analysis" not in c:
                         c["value_analysis"] = _mv[t]
 
+            # Step 10: FPI Sector Flows
+            st.write("Fetching FPI sector flows (NSDL)...")
+            try:
+                from fpi_sector_flows import fetch_fpi_sector_flows
+                _fpi_flows = fetch_fpi_sector_flows(months_back=6, force_refresh=True)
+                if not _fpi_flows.empty:
+                    st.write(f"  FPI: {_fpi_flows['date'].nunique()} reports, {_fpi_flows['sector'].nunique()} sectors")
+            except Exception as _fpi_e:
+                st.write(f"  FPI sector flows: {_fpi_e}")
+
             # Save to disk for persistence across restarts
             st.write("Saving scan results to disk...")
             save_scan_to_disk()
@@ -1153,7 +1163,7 @@ try:
         _top_sell = _fpi_summary.tail(5)["sector"].tolist()
         _trend_sectors = _top_buy + _top_sell
 
-        with st.expander(f"FPI Sector Flow Trends ({_fpi_months})", expanded=False):
+        with st.expander(f"FPI Sector Flow Trends ({_fpi_months})", expanded=True):
             _fpi_trend_view = st.radio("Trend View", ["% of AUC", "Absolute"], horizontal=True, key="fpi_trend_view")
             _fpi_trend = go.Figure()
             _palette = ["#2196F3", "#26a69a", "#8BC34A", "#FFD700", "#00BCD4",
