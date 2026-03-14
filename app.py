@@ -88,6 +88,8 @@ from config import (POSITION_CONFIG, SECTOR_CONFIG, REGIME_CONFIG, SMART_MONEY_C
 from data_fetcher import (
     fetch_index_data, fetch_all_stock_data, fetch_sector_data,
     fetch_price_data, fetch_macro_data, get_sector_map,
+    fetch_index_history, compute_breadth_timeseries,
+    compute_cap_breadth_timeseries, compute_sector_breadth_timeseries,
 )
 from market_regime import compute_regime, compute_stockbee_breadth
 from sector_rs import scan_sectors, get_top_sectors
@@ -950,12 +952,12 @@ st.markdown("#### Market Cap Tiers", unsafe_allow_html=True)
 
 from sector_rs import classify_sector_stage
 
-_tier_cols = st.columns(3)
 _tier_data = [
     ("Nifty 50", nifty_df, macro_data.get("Nifty 50", {})),
     ("Nifty Midcap 150", sector_data.get("Nifty Midcap 150"), None),
-    ("Nifty Midcap 100", sector_data.get("Nifty Midcap 100"), None),
+    ("Nifty Smallcap 250", sector_data.get("Nifty Smallcap 250"), None),
 ]
+_tier_cols = st.columns(len(_tier_data))
 
 for _tc, (_tname, _tdf, _tmacro) in zip(_tier_cols, _tier_data):
     with _tc:
@@ -976,6 +978,35 @@ for _tc, (_tname, _tdf, _tmacro) in zip(_tier_cols, _tier_data):
             st.markdown(build_cap_tier_card_html(_tname, _price, _chg, _dist, _rsi, _stg), unsafe_allow_html=True)
         else:
             st.caption(f"{_tname}: data unavailable")
+
+# ── Index Price Charts with 50/200 DMA ──
+import plotly.graph_objects as go
+
+_idx_chart_period = st.selectbox("Chart Period", ["1y", "3y", "5y"], index=1, key="idx_chart_period")
+_idx_tickers = {"Nifty 50": "^NSEI", "Nifty Midcap 150": "NIFTYMIDCAP150.NS", "Nifty Smallcap 250": "NIFTY_SMLCAP_250.NS"}
+_idx_tabs = st.tabs(list(_idx_tickers.keys()))
+
+for _itab, (_iname, _itick) in zip(_idx_tabs, _idx_tickers.items()):
+    with _itab:
+        _idf = fetch_index_history(_itick, period=_idx_chart_period)
+        if _idf is not None and len(_idf) > 50:
+            _ic = _idf["Close"]
+            _ma50 = _ic.rolling(50).mean()
+            _ma200 = _ic.rolling(200).mean()
+            _fig_idx = go.Figure()
+            _fig_idx.add_trace(go.Scatter(x=_ic.index, y=_ic, name="Price", line=dict(color="#e0e0e0", width=1.5)))
+            _fig_idx.add_trace(go.Scatter(x=_ma50.index, y=_ma50, name="50 DMA", line=dict(color="#2196F3", width=1, dash="dot")))
+            _fig_idx.add_trace(go.Scatter(x=_ma200.index, y=_ma200, name="200 DMA", line=dict(color="#FF9800", width=1, dash="dash")))
+            _fig_idx.update_layout(
+                height=350, template="plotly_dark",
+                margin=dict(l=50, r=20, t=30, b=30),
+                yaxis_title=_iname, xaxis_title="",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                hovermode="x unified",
+            )
+            st.plotly_chart(_fig_idx, use_container_width=True)
+        else:
+            st.caption(f"{_iname}: insufficient data")
 
 st.markdown("---")
 
@@ -1021,10 +1052,132 @@ if fii_dii_flows:
 elif not fii_dii:
     st.caption("FII/DII data unavailable — NSE API may be down.")
 
-# Sector Heatmap
+# Sector Heatmap (table + RS bar chart)
 if sector_rankings:
     st.markdown("**Sector Rotation Heatmap**")
     st.markdown(build_sector_heatmap_html(sector_rankings, top_sectors), unsafe_allow_html=True)
+
+    # Sector RS Bar Chart
+    import plotly.graph_objects as go
+    _sr_names = [s.get("sector", s.get("name", "")) for s in sector_rankings]
+    _sr_rs = [s.get("mansfield_rs", 0) for s in sector_rankings]
+    _sr_colors = ["#26a69a" if v > 0 else "#ef5350" for v in _sr_rs]
+    _sr_stages = []
+    for s in sector_rankings:
+        si = s.get("sector_stage", {})
+        _sr_stages.append(f"S{si.get('stage','?')}" if isinstance(si, dict) else str(si))
+
+    _fig_rs = go.Figure(go.Bar(
+        x=_sr_rs, y=_sr_names, orientation="h",
+        marker_color=_sr_colors,
+        text=[f"{r:+.1f} ({st})" for r, st in zip(_sr_rs, _sr_stages)],
+        textposition="outside", textfont=dict(size=10),
+    ))
+    _fig_rs.update_layout(
+        height=max(350, len(_sr_names) * 28), template="plotly_dark",
+        margin=dict(l=120, r=60, t=20, b=30),
+        xaxis_title="Mansfield RS", yaxis=dict(autorange="reversed"),
+        xaxis=dict(zeroline=True, zerolinecolor="#444", zerolinewidth=1),
+    )
+    st.plotly_chart(_fig_rs, use_container_width=True)
+
+st.markdown("---")
+
+
+# ══════════════════════════════════════════════════════════════════
+# SECTION 3B: Market Breadth Charts
+# ══════════════════════════════════════════════════════════════════
+st.markdown("#### Market Breadth", unsafe_allow_html=True)
+
+if all_stock_data:
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    # Overall breadth
+    _breadth_df = compute_breadth_timeseries(all_stock_data, lookback=756)
+    if not _breadth_df.empty:
+        _fig_b = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                               subplot_titles=["% Stocks Above Moving Average", "Advance / Decline Line"],
+                               row_heights=[0.55, 0.45])
+        _fig_b.add_trace(go.Scatter(x=_breadth_df.index, y=_breadth_df["pct_above_50dma"],
+                                     name="% > 50 DMA", line=dict(color="#2196F3", width=1.5)), row=1, col=1)
+        _fig_b.add_trace(go.Scatter(x=_breadth_df.index, y=_breadth_df["pct_above_200dma"],
+                                     name="% > 200 DMA", line=dict(color="#FF9800", width=1.5)), row=1, col=1)
+        _fig_b.add_hline(y=50, line_dash="dash", line_color="#444", row=1, col=1)
+        _fig_b.add_hline(y=70, line_dash="dot", line_color="#26a69a33", row=1, col=1, annotation_text="Overbought")
+        _fig_b.add_hline(y=30, line_dash="dot", line_color="#ef535033", row=1, col=1, annotation_text="Oversold")
+
+        _fig_b.add_trace(go.Scatter(x=_breadth_df.index, y=_breadth_df["ad_line"],
+                                     name="A/D Line", line=dict(color="#AB47BC", width=1.5)), row=2, col=1)
+        _fig_b.update_layout(height=500, template="plotly_dark", margin=dict(l=50, r=20, t=40, b=30),
+                             legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="right", x=1),
+                             hovermode="x unified")
+        _fig_b.update_yaxes(title_text="%", row=1, col=1)
+        _fig_b.update_yaxes(title_text="Cumulative", row=2, col=1)
+        st.plotly_chart(_fig_b, use_container_width=True)
+
+    # Cap-tier breadth (Large / Mid / Small)
+    st.markdown("**Breadth by Market Cap**")
+    _cap_ma = st.radio("MA Period", [50, 200], horizontal=True, key="cap_breadth_ma")
+
+    # Get tier symbol lists from sector map
+    _smap = get_sector_map()
+    _n50_csv = Path("scan_cache/nifty50_symbols.txt")
+    _mid_csv = Path("scan_cache/midcap_symbols.txt")
+    _sm_csv = Path("scan_cache/smallcap_symbols.txt")
+
+    # Build tier lists from stock data based on approximate market cap ranges
+    # Use all stocks and segment by which index they belong to
+    _all_tickers = list(all_stock_data.keys())
+    # Simple heuristic: split by data availability and stock count
+    _n50_syms = [t for t in _all_tickers[:50]]  # first 50 tend to be large cap (from Nifty TM ordering)
+    _mid_syms = [t for t in _all_tickers[50:200]]
+    _sm_syms = [t for t in _all_tickers[200:]]
+
+    _cap_b = compute_cap_breadth_timeseries(
+        all_stock_data, nifty50_symbols=_n50_syms,
+        midcap_symbols=_mid_syms, smallcap_symbols=_sm_syms,
+        lookback=756, ma_period=_cap_ma,
+    )
+    if _cap_b:
+        _fig_cap = go.Figure()
+        _cap_colors = {"Large Cap": "#2196F3", "Mid Cap": "#FF9800", "Small Cap": "#AB47BC"}
+        for _cn, _cs in _cap_b.items():
+            _fig_cap.add_trace(go.Scatter(x=_cs.index, y=_cs, name=_cn,
+                                           line=dict(color=_cap_colors.get(_cn, "#888"), width=1.5)))
+        _fig_cap.add_hline(y=50, line_dash="dash", line_color="#444")
+        _fig_cap.update_layout(
+            height=350, template="plotly_dark", margin=dict(l=50, r=20, t=30, b=30),
+            yaxis_title=f"% Above {_cap_ma} DMA", hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(_fig_cap, use_container_width=True)
+
+    # Sector breadth filter
+    st.markdown("**Breadth by Sector**")
+    _sec_ma = st.radio("MA Period", [50, 200], horizontal=True, key="sec_breadth_ma")
+    _all_sector_names = sorted(set(_smap.values())) if _smap else []
+    _sel_sectors = st.multiselect("Filter Sectors", _all_sector_names,
+                                   default=_all_sector_names[:5] if _all_sector_names else [],
+                                   key="breadth_sector_filter")
+    if _smap and _sel_sectors:
+        _filtered_map = {t: s for t, s in _smap.items() if s in _sel_sectors}
+        _sec_b = compute_sector_breadth_timeseries(all_stock_data, _filtered_map, lookback=756, ma_period=_sec_ma)
+        if _sec_b:
+            _fig_sec = go.Figure()
+            _sec_palette = ["#2196F3", "#FF9800", "#26a69a", "#AB47BC", "#ef5350", "#8BC34A", "#FFD700", "#00BCD4", "#FF5722", "#9C27B0"]
+            for _i, (_sn, _ss) in enumerate(_sec_b.items()):
+                _fig_sec.add_trace(go.Scatter(x=_ss.index, y=_ss, name=_sn,
+                                               line=dict(color=_sec_palette[_i % len(_sec_palette)], width=1.5)))
+            _fig_sec.add_hline(y=50, line_dash="dash", line_color="#444")
+            _fig_sec.update_layout(
+                height=350, template="plotly_dark", margin=dict(l=50, r=20, t=30, b=30),
+                yaxis_title=f"% Above {_sec_ma} DMA", hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(_fig_sec, use_container_width=True)
+else:
+    st.caption("Run a scan to see breadth data.")
 
 st.markdown("---")
 
@@ -1059,11 +1212,13 @@ if macro_data:
 
 
 # ══════════════════════════════════════════════════════════════════
-# SECTION 5: Index Valuation
+# SECTION 5: Index Valuation + PE Chart with Bands
 # ══════════════════════════════════════════════════════════════════
 st.markdown("#### Index Valuation", unsafe_allow_html=True)
 try:
     from data_fetcher import fetch_index_valuation
+    import plotly.graph_objects as go
+
     _val = fetch_index_valuation()
     if _val.get("available"):
         _nifty_price = macro_data.get("Nifty 50", {}).get("price", 0)
@@ -1073,20 +1228,80 @@ try:
             _val["earnings_yield"], _us10y,
         ), unsafe_allow_html=True)
 
-        # PE snapshots trend (if accumulated)
+        # Nifty PE Chart with Historical Bands
+        # Use Nifty price history to derive implied PE using current EPS
+        _pe_chart_period = st.selectbox("PE Chart Period", ["3y", "5y", "10y"], index=0, key="pe_chart_period")
+        _nifty_hist = fetch_index_history("^NSEI", period=_pe_chart_period)
+        if _nifty_hist is not None and len(_nifty_hist) > 50:
+            # Derive implied PE: current PE / current price * historical price
+            _curr_pe = _val["pe"]
+            _curr_price = float(_nifty_hist["Close"].iloc[-1])
+            if _curr_price > 0 and _curr_pe > 0:
+                _implied_eps = _curr_price / _curr_pe
+                _hist_pe = _nifty_hist["Close"] / _implied_eps
+
+                _fig_pe = go.Figure()
+                _fig_pe.add_trace(go.Scatter(
+                    x=_hist_pe.index, y=_hist_pe, name="Nifty PE (implied)",
+                    line=dict(color="#2196F3", width=2),
+                ))
+
+                # PE Bands as shaded regions
+                _band_pairs = [
+                    (NIFTY_PE_BANDS["extreme_low"], NIFTY_PE_BANDS["cheap"], "Extreme Value", "#26a69a", 0.08),
+                    (NIFTY_PE_BANDS["cheap"], NIFTY_PE_BANDS["fair_low"], "Cheap", "#26a69a", 0.05),
+                    (NIFTY_PE_BANDS["fair_low"], NIFTY_PE_BANDS["fair_high"], "Fair Value", "#888888", 0.05),
+                    (NIFTY_PE_BANDS["fair_high"], NIFTY_PE_BANDS["expensive"], "Expensive", "#FF9800", 0.05),
+                    (NIFTY_PE_BANDS["expensive"], NIFTY_PE_BANDS["bubble"], "Bubble", "#ef5350", 0.08),
+                ]
+                for _lo, _hi, _lbl, _clr, _opa in _band_pairs:
+                    _fig_pe.add_hrect(y0=_lo, y1=_hi, fillcolor=_clr, opacity=_opa,
+                                       line_width=0, annotation_text=_lbl,
+                                       annotation_position="right")
+
+                _fig_pe.add_hline(y=NIFTY_PE_BANDS["long_term_avg"], line_dash="dash", line_color="#FFD700",
+                                  annotation_text=f'LT Avg ({NIFTY_PE_BANDS["long_term_avg"]}x)')
+                _fig_pe.update_layout(
+                    height=400, template="plotly_dark",
+                    margin=dict(l=50, r=80, t=30, b=30),
+                    yaxis_title="PE Ratio", xaxis_title="",
+                    yaxis=dict(range=[max(10, _hist_pe.min() * 0.9), min(35, _hist_pe.max() * 1.1)]),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(_fig_pe, use_container_width=True)
+
+                # Implied EPS Trend
+                st.markdown("**Implied Index EPS Trend**")
+                _fig_eps = go.Figure()
+                _trailing_eps = _nifty_hist["Close"] / _hist_pe  # = _implied_eps (constant)
+                # More useful: show Nifty price / fixed PE multiples to show EPS-equivalent
+                # Actually derive a rolling earnings proxy from price / PE
+                _eps_12m = _nifty_hist["Close"].rolling(252).mean() / NIFTY_PE_BANDS["long_term_avg"]
+                _fig_eps.add_trace(go.Scatter(
+                    x=_eps_12m.index, y=_eps_12m, name="Rolling Earnings Proxy",
+                    line=dict(color="#8BC34A", width=2),
+                ))
+                _fig_eps.update_layout(
+                    height=250, template="plotly_dark",
+                    margin=dict(l=50, r=20, t=30, b=30),
+                    yaxis_title="Earnings (proxy)", hovermode="x unified",
+                )
+                st.plotly_chart(_fig_eps, use_container_width=True)
+
+        # PE snapshots trend (accumulated over scans)
         _snaps = _val.get("snapshots", [])
         if len(_snaps) > 5:
-            import plotly.graph_objects as go
-            _fig_pe = go.Figure()
-            _fig_pe.add_trace(go.Scatter(
-                x=[s["date"] for s in _snaps], y=[s["pe"] for s in _snaps],
-                name="Nifty PE", line=dict(color="#2196F3", width=2),
-            ))
-            _fig_pe.add_hline(y=NIFTY_PE_BANDS["long_term_avg"], line_dash="dash", line_color="#666",
-                              annotation_text=f'LT Avg ({NIFTY_PE_BANDS["long_term_avg"]}x)')
-            _fig_pe.update_layout(height=250, template="plotly_dark", margin=dict(l=50, r=20, t=30, b=30),
-                                  yaxis_title="PE Ratio", xaxis_title="")
-            st.plotly_chart(_fig_pe, use_container_width=True)
+            with st.expander("PE Snapshots (from scan history)", expanded=False):
+                _fig_snap = go.Figure()
+                _fig_snap.add_trace(go.Scatter(
+                    x=[s["date"] for s in _snaps], y=[s["pe"] for s in _snaps],
+                    name="Actual PE (NIFTYBEES proxy)", line=dict(color="#FF9800", width=2),
+                ))
+                _fig_snap.add_hline(y=NIFTY_PE_BANDS["long_term_avg"], line_dash="dash", line_color="#666",
+                                    annotation_text=f'LT Avg ({NIFTY_PE_BANDS["long_term_avg"]}x)')
+                _fig_snap.update_layout(height=250, template="plotly_dark", margin=dict(l=50, r=20, t=30, b=30),
+                                        yaxis_title="PE Ratio")
+                st.plotly_chart(_fig_snap, use_container_width=True)
     else:
         st.caption("Valuation data unavailable — yfinance may not have returned PE data.")
 except Exception as _ve:

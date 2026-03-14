@@ -2249,9 +2249,9 @@ def build_sector_heatmap_html(sector_rankings: list, top_sectors: list) -> str:
         s_color = stage_colors.get(stage[:2], "#888")
 
         mom = s.get("momentum", {})
-        m1w = mom.get(5, 0) if isinstance(mom, dict) else 0
-        m1m = mom.get(21, 0) if isinstance(mom, dict) else 0
-        m3m = mom.get(63, 0) if isinstance(mom, dict) else 0
+        m1w = mom.get("1w", mom.get(5, 0)) if isinstance(mom, dict) else 0
+        m1m = mom.get("1m", mom.get(21, 0)) if isinstance(mom, dict) else 0
+        m3m = mom.get("3m", mom.get(63, 0)) if isinstance(mom, dict) else 0
 
         def _m_cell(v):
             c = "#26a69a" if v > 0.5 else "#ef5350" if v < -0.5 else "#666"

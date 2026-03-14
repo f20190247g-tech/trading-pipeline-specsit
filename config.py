@@ -64,6 +64,7 @@ NSE_SECTOR_INDICES = {
     "Nifty MNC":          "^CNXMNC",
     "Nifty Midcap 150":   "NIFTYMIDCAP150.NS",
     "Nifty Midcap 100":   "NIFTY_MIDCAP_100.NS",
+    "Nifty Smallcap 250": "NIFTY_SMLCAP_250.NS",
 }
 
 NIFTY50_TICKER = "^NSEI"
@@ -334,7 +335,7 @@ MACRO_DERIVATIVE_LABELS = ["India VIX", "USD/INR", "Crude Oil", "Gold", "US 10Y"
 CAP_TIER_INDICES = {
     "Nifty 50": "^NSEI",
     "Nifty Midcap 150": "NIFTYMIDCAP150.NS",
-    "Nifty Midcap 100": "NIFTY_MIDCAP_100.NS",
+    "Nifty Smallcap 250": "NIFTY_SMLCAP_250.NS",
 }
 
 # Nifty 50 historical PE bands (well-documented, source: NSE/Bloomberg)

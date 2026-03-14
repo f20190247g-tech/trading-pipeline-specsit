@@ -608,3 +608,125 @@ def fetch_index_valuation() -> dict:
         logger.warning("Index valuation fetch failed: %s", e)
 
     return result
+
+
+def fetch_index_history(ticker: str, period: str = "3y") -> pd.DataFrame:
+    """Fetch long-term daily OHLCV for an index. period can be '3y', '5y', '10y', 'max'."""
+    try:
+        df = yf.download(ticker, period=period, interval="1d", progress=False)
+        if df.empty:
+            return pd.DataFrame()
+        # Handle MultiIndex columns
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.xs(ticker, level=1, axis=1) if ticker in df.columns.get_level_values(1) else df.droplevel(1, axis=1)
+        return df
+    except Exception as e:
+        logger.warning("fetch_index_history(%s) failed: %s", ticker, e)
+        return pd.DataFrame()
+
+
+def compute_breadth_timeseries(
+    all_stock_data: dict,
+    lookback: int = 756,  # ~3 years
+) -> pd.DataFrame:
+    """Compute daily breadth metrics: % above 50DMA, % above 200DMA, A/D line.
+
+    Returns DataFrame with columns: pct_above_50dma, pct_above_200dma, ad_line, advances, declines.
+    """
+    all_closes = {}
+    for ticker, df in all_stock_data.items():
+        if len(df) >= 200:
+            all_closes[ticker] = df["Close"].iloc[-lookback:] if len(df) >= lookback else df["Close"]
+    if not all_closes:
+        return pd.DataFrame()
+
+    closes = pd.DataFrame(all_closes)
+    # % above 50 DMA
+    ma50 = closes.rolling(50, min_periods=50).mean()
+    above_50 = (closes > ma50).sum(axis=1) / closes.notna().sum(axis=1) * 100
+    # % above 200 DMA
+    ma200 = closes.rolling(200, min_periods=200).mean()
+    above_200 = (closes > ma200).sum(axis=1) / closes.notna().sum(axis=1) * 100
+    # A/D line
+    daily_ret = closes.pct_change()
+    advances = (daily_ret > 0).sum(axis=1)
+    declines = (daily_ret < 0).sum(axis=1)
+    ad_line = (advances - declines).cumsum()
+
+    result = pd.DataFrame({
+        "pct_above_50dma": above_50,
+        "pct_above_200dma": above_200,
+        "ad_line": ad_line,
+        "advances": advances,
+        "declines": declines,
+    })
+    return result.dropna(subset=["pct_above_50dma"])
+
+
+def compute_cap_breadth_timeseries(
+    all_stock_data: dict,
+    nifty50_symbols: list = None,
+    midcap_symbols: list = None,
+    smallcap_symbols: list = None,
+    lookback: int = 756,
+    ma_period: int = 50,
+) -> dict:
+    """Compute breadth by market cap tier (large/mid/small).
+
+    Returns dict with keys 'large', 'mid', 'small' each containing a Series
+    of % above the given MA period.
+    """
+    result = {}
+    tiers = {
+        "Large Cap": nifty50_symbols or [],
+        "Mid Cap": midcap_symbols or [],
+        "Small Cap": smallcap_symbols or [],
+    }
+    for tier_name, symbols in tiers.items():
+        if not symbols:
+            continue
+        tier_closes = {}
+        for sym in symbols:
+            ticker = sym if sym.endswith(".NS") else f"{sym}.NS"
+            df = all_stock_data.get(ticker)
+            if df is not None and len(df) >= 200:
+                tier_closes[ticker] = df["Close"].iloc[-lookback:] if len(df) >= lookback else df["Close"]
+        if not tier_closes:
+            continue
+        closes = pd.DataFrame(tier_closes)
+        ma = closes.rolling(ma_period, min_periods=ma_period).mean()
+        pct_above = (closes > ma).sum(axis=1) / closes.notna().sum(axis=1) * 100
+        result[tier_name] = pct_above.dropna()
+    return result
+
+
+def compute_sector_breadth_timeseries(
+    all_stock_data: dict,
+    sector_map: dict,
+    lookback: int = 756,
+    ma_period: int = 50,
+) -> dict:
+    """Compute breadth per sector.
+
+    sector_map: dict mapping ticker -> sector name.
+    Returns dict: sector_name -> Series of % above MA.
+    """
+    # Group tickers by sector
+    sectors = {}
+    for ticker, sector in sector_map.items():
+        sectors.setdefault(sector, []).append(ticker)
+
+    result = {}
+    for sector_name, tickers in sectors.items():
+        tier_closes = {}
+        for t in tickers:
+            df = all_stock_data.get(t)
+            if df is not None and len(df) >= 200:
+                tier_closes[t] = df["Close"].iloc[-lookback:] if len(df) >= lookback else df["Close"]
+        if len(tier_closes) < 3:  # need at least 3 stocks
+            continue
+        closes = pd.DataFrame(tier_closes)
+        ma = closes.rolling(ma_period, min_periods=ma_period).mean()
+        pct_above = (closes > ma).sum(axis=1) / closes.notna().sum(axis=1) * 100
+        result[sector_name] = pct_above.dropna()
+    return result
