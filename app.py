@@ -1216,12 +1216,18 @@ if all_stock_data:
     # Sector breadth filter
     st.markdown("**Breadth by Sector**")
     _sec_ma = st.radio("MA Period", [50, 200], horizontal=True, key="sec_breadth_ma")
-    _all_sector_names = sorted(set(_smap.values())) if _smap else []
+    # _smap is sector_name -> [tickers], invert to ticker -> sector_name
+    _ticker_to_sector = {}
+    if _smap:
+        for _sec_name, _sec_tickers in _smap.items():
+            for _st in _sec_tickers:
+                _ticker_to_sector[_st] = _sec_name
+    _all_sector_names = sorted(set(_ticker_to_sector.values())) if _ticker_to_sector else []
     _sel_sectors = st.multiselect("Filter Sectors", _all_sector_names,
                                    default=_all_sector_names[:5] if _all_sector_names else [],
                                    key="breadth_sector_filter")
-    if _smap and _sel_sectors:
-        _filtered_map = {t: s for t, s in _smap.items() if s in _sel_sectors}
+    if _ticker_to_sector and _sel_sectors:
+        _filtered_map = {t: s for t, s in _ticker_to_sector.items() if s in _sel_sectors}
         _sec_b = compute_sector_breadth_timeseries(all_stock_data, _filtered_map, lookback=756, ma_period=_sec_ma)
         if _sec_b:
             _fig_sec = go.Figure()
