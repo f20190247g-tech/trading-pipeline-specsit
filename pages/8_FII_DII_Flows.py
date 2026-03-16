@@ -47,11 +47,11 @@ try:
     today_data, history_df, flow_data = load_fii_dii_data()
 except Exception as e:
     st.error(f"Failed to fetch FII/DII data: {e}")
-    st.info("Run a Weekend Scan from the home page to populate the cache, then retry.")
+    st.info("NSE may be unreachable. Try refreshing, or check your network connection.")
     st.stop()
 
 if history_df is None or history_df.empty:
-    st.warning("No FII/DII historical data available. Run a scan from the home page first.")
+    st.warning("No FII/DII historical data available. NSE may not have returned data — try again later.")
     st.stop()
 
 # Prepare history
