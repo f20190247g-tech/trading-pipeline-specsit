@@ -234,9 +234,25 @@ if latest is not None:
     if flow_data:
         st.markdown("---")
         st.subheader("Cumulative Flow Summary")
-        timeframes = ["1w", "2w", "1m", "3m", "6m", "1y", "2y", "5y"]
-        cols = st.columns(len(timeframes))
-        for i, tf in enumerate(timeframes):
+        # Only show timeframes that have distinct data (not duplicating
+        # the total when we run out of history)
+        all_tf = ["1w", "2w", "1m", "3m", "6m", "1y", "2y", "5y"]
+        # Minimum expected calendar days for each timeframe
+        min_days = {"1w": 3, "2w": 7, "1m": 15, "3m": 40, "6m": 80, "1y": 200, "2y": 400, "5y": 1000}
+        visible = []
+        prev_fii = None
+        for tf in all_tf:
+            fl = flow_data.get(tf, {})
+            fn = fl.get("fii_net") or 0
+            days = fl.get("days_available", 0)
+            # Skip if same total as previous (we've hit our data ceiling)
+            if prev_fii is not None and fn == prev_fii and days < min_days[tf]:
+                continue
+            visible.append(tf)
+            prev_fii = fn
+
+        cols = st.columns(len(visible))
+        for i, tf in enumerate(visible):
             fl = flow_data.get(tf, {})
             fn = fl.get("fii_net") or 0
             dn = fl.get("dii_net") or 0
