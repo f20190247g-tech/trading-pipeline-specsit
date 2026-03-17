@@ -31,24 +31,17 @@ st.caption("Institutional money flow tracker for Indian equity markets")
 
 
 # ── Data Loading ────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner="Fetching FII/DII history from NSE...")
-def load_fii_dii_data():
-    """Load historical FII/DII data using our NSE fetcher."""
-    nse = get_nse_fetcher()
-    today_data = nse.fetch_fii_dii_data()
-    history = nse.fetch_fii_dii_historical(days=1825)
-    flows = {}
-    if history is not None and not history.empty:
-        flows = compute_fii_dii_flows(history)
-    return today_data, history, flows
-
-
-try:
-    today_data, history_df, flow_data = load_fii_dii_data()
-except Exception as e:
-    st.error(f"Failed to fetch FII/DII data: {e}")
-    st.info("NSE may be unreachable. Try refreshing, or check your network connection.")
-    st.stop()
+with st.spinner("Fetching FII/DII data from NSE..."):
+    try:
+        nse = get_nse_fetcher()
+        today_data = nse.fetch_fii_dii_data()
+        history_df = nse.fetch_fii_dii_historical()
+        flow_data = {}
+        if history_df is not None and not history_df.empty:
+            flow_data = compute_fii_dii_flows(history_df)
+    except Exception as e:
+        st.error(f"Failed to fetch FII/DII data: {e}")
+        st.stop()
 
 if history_df is None or history_df.empty:
     st.warning("No FII/DII historical data available. NSE may not have returned data — try again later.")
