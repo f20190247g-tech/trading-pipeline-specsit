@@ -146,7 +146,7 @@ MONTHLY_CACHE_KEYS = [
 
 # Backward compat alias
 CACHE_KEYS = WEEKLY_CACHE_KEYS
-
+print("hello world")
 
 def _save_cache(filepath, keys):
     CACHE_DIR.mkdir(exist_ok=True)
