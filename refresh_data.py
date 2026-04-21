@@ -154,4 +154,9 @@ def run_refresh():
 
 
 if __name__ == "__main__":
+    
+        # Auto-push to Gist for HTML dashboard
+    from gist_updater import build_snapshot_from_cache, push_snapshot
+    push_snapshot(build_snapshot_from_cache())
+    
     run_refresh()
